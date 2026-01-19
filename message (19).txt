@@ -1,163 +1,67 @@
--- 🎲 ULTRA RANDOM HOPPER (MULTI-BOT VERSION)
--- Специально для бот-нетворка: Боты не встречаются!
+-- ⚡ FLASH SERVER HOPPER
+-- Быстрый. Рандомный. Работает.
 
-local TeleportService = game:GetService("TeleportService")
+local Http = game:GetService("HttpService")
+local TPS = game:GetService("TeleportService")
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local GuiService = game:GetService("GuiService")
-local RunService = game:GetService("RunService")
 
-local SETTINGS = {
-    GAME_ID = 109983668079237,
-    URL = "https://raw.githubusercontent.com/velo35001/logi/refs/heads/main/logi.txt",
-    TIMEOUT = 5, -- Если через 5 сек не улетели - считаем ошибкой
-}
+local PlaceId = game.PlaceId
+local Cursor = ""
 
--- Инициализация уникального рандома для этого окна
-math.randomseed(os.time() + math.random(1, 100000))
-
-local BLACKLIST = {}
-local SERVER_POOL = {}
-local IS_HOPPING = false
-
--- // GUI (Минималистичный статус) //
-local screen = Instance.new("ScreenGui", game.CoreGui)
-screen.Name = "RandomHopper"
-screen.ResetOnSpawn = false
-local frame = Instance.new("Frame", screen)
-frame.Size = UDim2.new(0, 220, 0, 60)
-frame.Position = UDim2.new(0.5, -110, 0, 5)
-frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-frame.BorderSizePixel = 0
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-local status = Instance.new("TextLabel", frame)
-status.Size = UDim2.new(1,0,1,0)
-status.BackgroundTransparency = 1
-status.TextColor3 = Color3.fromRGB(255, 255, 255)
-status.Font = Enum.Font.GothamBold
-status.TextSize = 12
-status.TextWrapped = true
-status.Text = "⏳ Init..."
-
-local function Log(text, color)
-    status.Text = text
-    if color then status.TextColor3 = color end
-end
-
--- // УТИЛИТА: Перемешивание таблицы (Fisher-Yates Shuffle) //
--- Это гарантирует, что у каждого бота будет СВОЙ порядок серверов
-local function Shuffle(tbl)
-    for i = #tbl, 2, -1 do
-        local j = math.random(i)
-        tbl[i], tbl[j] = tbl[j], tbl[i]
-    end
-    return tbl
-end
-
--- // ПОЛУЧЕНИЕ СПИСКА //
-local function FetchServers()
-    Log("📥 Скачивание списка...", Color3.fromRGB(100, 200, 255))
-    local success, result = pcall(game.HttpGet, game, SETTINGS.URL, true)
-    
-    if not success then 
-        Log("❌ Ошибка HTTP!", Color3.fromRGB(255, 50, 50))
-        task.wait(2)
-        return {} 
-    end
-
-    local list = {}
-    for id in result:gmatch("[a-f0-9%-]+") do
-        if #id > 10 then -- Фильтр мусора
-            table.insert(list, id)
-        end
-    end
-    
-    -- ПЕРЕМЕШИВАЕМ СПИСОК ДЛЯ ЭТОГО БОТА
-    list = Shuffle(list)
-    return list
-end
-
--- // ЛОГИКА ПРЫЖКА //
 local function Hop()
-    if IS_HOPPING then return end
-    IS_HOPPING = true
-    
-    -- Если список пуст или кончился, качаем заново
-    if #SERVER_POOL == 0 then
-        SERVER_POOL = FetchServers()
-    end
-    
-    -- Выбираем случайный сервер из уже перемешанного пула
-    -- Дополнительный рандом на всякий случай
-    local targetID = nil
-    local attempts = 0
-    
-    while attempts < 50 do
-        attempts = attempts + 1
-        -- Берем случайный индекс
-        local idx = math.random(1, #SERVER_POOL)
-        local candidate = SERVER_POOL[idx]
-        
-        if candidate and not BLACKLIST[candidate] then
-            targetID = candidate
-            break
-        end
-    end
-    
-    if not targetID then
-        Log("♻️ Нет рабочих серверов. Обновляю...", Color3.fromRGB(255, 200, 50))
-        BLACKLIST = {} -- Очищаем чс, пробуем снова
-        SERVER_POOL = {}
-        IS_HOPPING = false
-        task.wait(1)
-        return
-    end
-
-    Log("🚀 Прыжок: " .. targetID:sub(1, 8), Color3.fromRGB(100, 255, 100))
-    
-    -- Попытка телепорта
-    TeleportService:TeleportToPlaceInstance(SETTINGS.GAME_ID, targetID, Players.LocalPlayer)
-    
-    -- WATCHDOG (Таймер защиты от зависания)
-    local startTick = tick()
-    while tick() - startTick < SETTINGS.TIMEOUT do
-        RunService.Heartbeat:Wait()
-        -- Если телепорт не начался, скрипт продолжает крутиться
-    end
-    
-    -- Если мы здесь, значит прошло 5 секунд, а мы еще на старом сервере
-    Log("⚠️ Ошибка/Таймаут. Меняем...", Color3.fromRGB(255, 100, 100))
-    BLACKLIST[targetID] = true -- Баним этот сервер
-    
-    -- Пытаемся закрыть окно ошибки (если оно есть)
-    pcall(function() GuiService:ClearError() end)
-    
-    IS_HOPPING = false -- Сбрасываем флаг, чтобы цикл запустил новый поиск
-end
-
--- // ОБРАБОТЧИК ОШИБОК (Мгновенная реакция) //
-TeleportService.TeleportInitFailed:Connect(function(player, result, err)
-    if player == Players.LocalPlayer then
-        -- Ловим GameEnded, GameFull, Unauthorized и т.д.
-        Log("⛔ Сбой: " .. tostring(result), Color3.fromRGB(255, 50, 50))
-        
-        -- Сразу разрешаем искать новый, не ждем таймер
-        IS_HOPPING = false 
-        pcall(function() GuiService:ClearError() end)
-    end
-end)
-
--- // ГЛАВНЫЙ ЦИКЛ //
-task.spawn(function()
     while true do
-        if not IS_HOPPING then
-            local s, e = pcall(Hop)
-            if not s then 
-                warn("Script Error: " .. e)
-                IS_HOPPING = false
+        -- 1. Запрос (Сразу просим убрать полные сервера для скорости)
+        local API = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true"
+        if Cursor ~= "" then API = API .. "&cursor=" .. Cursor end
+        
+        local success, response = pcall(game.HttpGet, game, API)
+        
+        if not success then
+            task.wait(1) -- Если ошибка сети, ждем секунду и пробуем снова
+            continue
+        end
+        
+        local data = Http:JSONDecode(response)
+        if not data or not data.data then 
+            task.wait(1) 
+            continue 
+        end
+        
+        -- 2. Ищем подходящий сервер
+        local servers = {}
+        for _, s in ipairs(data.data) do
+            -- Проверка: не текущий сервер, и есть место (хотя API уже должен отфильтровать)
+            if s.playing < s.maxPlayers and s.id ~= game.JobId then
+                table.insert(servers, s.id)
             end
         end
-        task.wait(0.1) -- Очень быстрая проверка
+        
+        -- 3. Телепортация (Рандомная)
+        if #servers > 0 then
+            local target = servers[math.random(1, #servers)] -- Случайный выбор
+            
+            -- Попытка телепорта
+            TPS:TeleportToPlaceInstance(PlaceId, target, Players.LocalPlayer)
+            
+            -- Ждем немного, если не улетели - цикл пойдет дальше
+            task.wait(2)
+        end
+        
+        -- 4. Листаем страницы, если на этой ничего не нашли
+        if data.nextPageCursor then
+            Cursor = data.nextPageCursor
+        else
+            Cursor = "" -- Начинаем сначала
+        end
     end
-end)
+end
+
+-- GUI статус (чтобы видеть, что он работает)
+local sg = Instance.new("ScreenGui", game.CoreGui)
+local tl = Instance.new("TextLabel", sg)
+tl.Size = UDim2.new(0,200,0,50); tl.Position = UDim2.new(0.5,-100,0,0)
+tl.BackgroundColor3 = Color3.new(0,0,0); tl.TextColor3 = Color3.new(1,1,1)
+tl.Text = "⚡ Hopping..."
+
+-- Запуск
+Hop()
