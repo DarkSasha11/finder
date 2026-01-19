@@ -1,191 +1,115 @@
+-- ⚡ ULTRA FAST SERVER HOPPER (FIXED 771 ERROR)
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 
--- // НАСТРОЙКИ (МАКСИМАЛЬНАЯ СКОРОСТЬ) //
 local SETTINGS = {
     GAME_ID = 109983668079237,
-    PASTEFY_URL = "https://raw.githubusercontent.com/velo35001/logi/refs/heads/main/logi.txt",
-    RETRY_DELAY = 0.1,    -- Задержка при ошибке (мгновенно)
-    REFRESH_DELAY = 5,    -- Как часто обновлять список серверов если все плохие
-    BLACKLIST_TIME = 3600 -- На сколько секунд банить плохой сервер (1 час)
+    URL = "https://raw.githubusercontent.com/velo35001/logi/refs/heads/main/logi.txt",
+    TIMEOUT = 6, -- Если через 6 сек мы еще тут - пробуем следующий
 }
 
--- Хранилище
-local SERVER_LIST = {}
 local BLACKLIST = {}
-local currentTarget = nil
-local isTeleporting = false
+local SERVERS = {}
+local ATTEMPTING = false
 
--- // GUI ИНТЕРФЕЙС //
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "FastTeleportGUI"
-screenGui.Parent = game:GetService("CoreGui")
-screenGui.ResetOnSpawn = false
+-- // GUI //
+local screen = Instance.new("ScreenGui", game.CoreGui)
+local frame = Instance.new("Frame", screen)
+frame.Size = UDim2.new(0, 200, 0, 70)
+frame.Position = UDim2.new(0.5, -100, 0, 10)
+frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+local label = Instance.new("TextLabel", frame)
+label.Size = UDim2.new(1,0,1,0)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.new(1,1,1)
+label.TextWrapped = true
+label.Font = Enum.Font.GothamBold
+label.TextSize = 14
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 260, 0, 100)
-frame.Position = UDim2.new(0.5, -130, 0.9, -110)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-frame.BorderSizePixel = 0
-frame.Parent = screenGui
+local function Status(txt) label.Text = txt end
 
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 25)
-title.BackgroundTransparency = 1
-title.Text = "⚡ FAST AUTO JOINER"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 16
-title.Parent = frame
-
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, -20, 1, -30)
-status.Position = UDim2.new(0, 10, 0, 25)
-status.BackgroundTransparency = 1
-status.Text = "Инициализация..."
-status.TextColor3 = Color3.fromRGB(180, 180, 180)
-status.Font = Enum.Font.Gotham
-status.TextSize = 13
-status.TextWrapped = true
-status.TextYAlignment = Enum.TextYAlignment.Top
-status.Parent = frame
-
--- Кнопка закрытия
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 20, 0, 20)
-closeBtn.Position = UDim2.new(1, -25, 0, 2)
-closeBtn.BackgroundTransparency = 1
-closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.Parent = frame
-closeBtn.MouseButton1Click:Connect(function() screenGui:Destroy() script:Destroy() end)
-
--- Перетаскивание
-local dragging, dragInput, dragStart, startPos
-frame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = frame.Position
-    end
-end)
-frame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-end)
-
-local function SetStatus(text, color)
-    status.Text = text
-    if color then status.TextColor3 = color end
-end
-
--- // ЛОГИКА ТЕЛЕПОРТА //
-
--- 1. Загрузка списка
-local function FetchServers()
-    local success, result = pcall(function()
-        return game:HttpGet(SETTINGS.PASTEFY_URL, true) -- true отключает кэш
-    end)
+-- // ФУНКЦИЯ ПОЛУЧЕНИЯ СЕРВЕРОВ //
+local function GetServers()
+    Status("🔄 Скачиваю список...")
+    local s, r = pcall(game.HttpGet, game, SETTINGS.URL)
+    if not s then return {} end
     
-    if not success then
-        SetStatus("Ошибка получения списка!", Color3.fromRGB(255, 50, 50))
-        return {}
+    local t = {}
+    for id in r:gmatch("%w+-%w+-%w+-%w+-%w+") do
+        table.insert(t, id)
     end
-
-    local list = {}
-    for id in result:gmatch("([a-f0-9%-]+)") do
-        if #id > 10 then -- Простая проверка, что это похоже на JobId
-            table.insert(list, id)
-        end
-    end
-    return list
+    return t
 end
 
--- 2. Обработка ошибки 771 и других сбоев
-TeleportService.TeleportInitFailed:Connect(function(player, result, errorMessage)
-    if player == Players.LocalPlayer then
-        -- Если телепорт не удался (сервер оффлайн/ошибка 771)
-        SetStatus("⛔ Сбой: " .. tostring(result) .. "\nПробуем следующий...", Color3.fromRGB(255, 100, 100))
-        
-        if currentTarget then
-            BLACKLIST[currentTarget] = os.time() -- В бан этот сервер
+-- // ФУНКЦИЯ ОЧИСТКИ ОШИБОК //
+local function ClearErrors()
+    -- Пытаемся закрыть серые окна роблокса
+    pcall(function() GuiService:ClearError() end) 
+end
+
+-- // ГЛАВНАЯ ЛОГИКА //
+local function Hop()
+    if ATTEMPTING then return end
+    ATTEMPTING = true
+    
+    if #SERVERS == 0 then
+        SERVERS = GetServers()
+    end
+    
+    -- Выбираем сервер
+    local targetJobId = nil
+    for i = 1, 50 do -- Пробуем найти не забаненный ID
+        local rnd = SERVERS[math.random(1, #SERVERS)]
+        if rnd and not BLACKLIST[rnd] then
+            targetJobId = rnd
+            break
         end
-        
-        isTeleporting = false -- Разрешаем искать новый сервер
+    end
+    
+    if not targetJobId then
+        Status("♻️ Список кончился, обновляю...")
+        SERVERS = {}
+        ATTEMPTING = false
+        return
+    end
+
+    Status("🚀 Вход в: " .. targetJobId:sub(1,8))
+    
+    -- Попытка телепорта
+    TeleportService:TeleportToPlaceInstance(SETTINGS.GAME_ID, targetJobId, Players.LocalPlayer)
+    
+    -- ЗАЩИТА ОТ ЗАВИСАНИЯ (FIX 771)
+    local start = tick()
+    while tick() - start < SETTINGS.TIMEOUT do
+        RunService.Heartbeat:Wait()
+        -- Если вдруг сработало событие ошибки
+    end
+    
+    -- Если мы всё еще тут через 6 секунд, значит ошибка 771 или Server Full
+    Status("⚠️ Тайм-аут! След. сервер...")
+    BLACKLIST[targetJobId] = true
+    ClearErrors() -- Пробуем закрыть окно ошибки
+    ATTEMPTING = false -- Сбрасываем флаг, цикл начнется заново
+end
+
+-- // СЛУШАТЕЛИ ОШИБОК //
+TeleportService.TeleportInitFailed:Connect(function(pl, res, err)
+    Status("❌ Ошибка: " .. tostring(res))
+    if ATTEMPTING then
+        -- Мгновенно пробуем следующий, не ждем таймера
+        ATTEMPTING = false 
+        ClearErrors()
     end
 end)
 
--- 3. Основной цикл
+-- Запуск цикла
 task.spawn(function()
     while true do
-        if not isTeleporting then
-            -- Загружаем список, если пуст
-            if #SERVER_LIST == 0 then
-                SetStatus("📥 Загрузка списка серверов...", Color3.fromRGB(100, 200, 255))
-                SERVER_LIST = FetchServers()
-                task.wait(0.5)
-            end
-
-            -- Ищем валидный сервер
-            local validServer = nil
-            
-            -- Перемешиваем список для рандома (Fisher-Yates shuffle)
-            for i = #SERVER_LIST, 2, -1 do
-                local j = math.random(i)
-                SERVER_LIST[i], SERVER_LIST[j] = SERVER_LIST[j], SERVER_LIST[i]
-            end
-
-            for _, id in ipairs(SERVER_LIST) do
-                -- Проверка: нет ли в черном списке
-                if not BLACKLIST[id] or (os.time() - BLACKLIST[id] > SETTINGS.BLACKLIST_TIME) then
-                    validServer = id
-                    break
-                end
-            end
-
-            if validServer then
-                isTeleporting = true
-                currentTarget = validServer
-                
-                SetStatus("🚀 Вход: " .. validServer:sub(1, 8) .. "...", Color3.fromRGB(100, 255, 100))
-                
-                -- Попытка телепорта
-                local success, err = pcall(function()
-                    TeleportService:TeleportToPlaceInstance(SETTINGS.GAME_ID, validServer, Players.LocalPlayer)
-                end)
-
-                if not success then
-                    -- Если ошибка возникла сразу (до начала перехода)
-                    SetStatus("⚠️ Ошибка вызова: " .. tostring(err), Color3.fromRGB(255, 200, 50))
-                    BLACKLIST[validServer] = os.time()
-                    isTeleporting = false
-                    task.wait(SETTINGS.RETRY_DELAY)
-                else
-                    -- Если вызов прошел, ждем. Если вылетит Error 771, сработает TeleportInitFailed выше
-                    -- и сбросит isTeleporting в false
-                    SetStatus("⏳ Подключение... Жди.", Color3.fromRGB(150, 255, 150))
-                    task.wait(4) -- Даем время на реакцию Roblox
-                end
-            else
-                SetStatus("♻️ Все сервера в бане/недоступны.\nОбновление списка...", Color3.fromRGB(255, 200, 0))
-                SERVER_LIST = {} -- Очищаем, чтобы скачать заново
-                task.wait(SETTINGS.REFRESH_DELAY)
-            end
+        if not ATTEMPTING then
+            Hop()
         end
         task.wait(0.1)
     end
