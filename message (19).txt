@@ -1,67 +1,139 @@
--- ⚡ FLASH SERVER HOPPER
--- Быстрый. Рандомный. Работает.
+-- ⚡ HYPER FAST SERVER HOPPER (GUI + CACHE)
+-- Кэширует сервера для скорости + Кнопка Стоп
 
 local Http = game:GetService("HttpService")
 local TPS = game:GetService("TeleportService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 
 local PlaceId = game.PlaceId
+local HOPPING = false
+local CACHED_SERVERS = {}
 local Cursor = ""
 
-local function Hop()
-    while true do
-        -- 1. Запрос (Сразу просим убрать полные сервера для скорости)
-        local API = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true"
-        if Cursor ~= "" then API = API .. "&cursor=" .. Cursor end
-        
-        local success, response = pcall(game.HttpGet, game, API)
-        
-        if not success then
-            task.wait(1) -- Если ошибка сети, ждем секунду и пробуем снова
-            continue
-        end
-        
-        local data = Http:JSONDecode(response)
-        if not data or not data.data then 
-            task.wait(1) 
-            continue 
-        end
-        
-        -- 2. Ищем подходящий сервер
-        local servers = {}
-        for _, s in ipairs(data.data) do
-            -- Проверка: не текущий сервер, и есть место (хотя API уже должен отфильтровать)
-            if s.playing < s.maxPlayers and s.id ~= game.JobId then
-                table.insert(servers, s.id)
-            end
-        end
-        
-        -- 3. Телепортация (Рандомная)
-        if #servers > 0 then
-            local target = servers[math.random(1, #servers)] -- Случайный выбор
-            
-            -- Попытка телепорта
-            TPS:TeleportToPlaceInstance(PlaceId, target, Players.LocalPlayer)
-            
-            -- Ждем немного, если не улетели - цикл пойдет дальше
-            task.wait(2)
-        end
-        
-        -- 4. Листаем страницы, если на этой ничего не нашли
-        if data.nextPageCursor then
-            Cursor = data.nextPageCursor
-        else
-            Cursor = "" -- Начинаем сначала
+-- // 1. СОЗДАНИЕ GUI //
+local Screen = Instance.new("ScreenGui")
+Screen.Name = "HyperHopGUI"
+Screen.Parent = CoreGui
+
+local Frame = Instance.new("Frame", Screen)
+Frame.Size = UDim2.new(0, 200, 0, 90)
+Frame.Position = UDim2.new(0.5, -100, 0.1, 0)
+Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Frame.BorderSizePixel = 0
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+
+local Title = Instance.new("TextLabel", Frame)
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ HYPER HOPPER"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 14
+
+local StatusLbl = Instance.new("TextLabel", Frame)
+StatusLbl.Size = UDim2.new(1, 0, 0, 20)
+StatusLbl.Position = UDim2.new(0, 0, 0, 30)
+StatusLbl.BackgroundTransparency = 1
+StatusLbl.Text = "Idle"
+StatusLbl.TextColor3 = Color3.fromRGB(150, 150, 150)
+StatusLbl.Font = Enum.Font.Gotham
+StatusLbl.TextSize = 12
+
+local ToggleBtn = Instance.new("TextButton", Frame)
+ToggleBtn.Size = UDim2.new(0, 180, 0, 30)
+ToggleBtn.Position = UDim2.new(0.5, -90, 0, 55)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 40)
+ToggleBtn.Text = "START HOPPING"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextSize = 14
+Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 6)
+
+-- // 2. ЛОГИКА СЕРВЕРОВ //
+local function UpdateStatus(txt) StatusLbl.Text = txt end
+
+local function FetchServers()
+    UpdateStatus("♻️ Обновление списка...")
+    local API = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true"
+    if Cursor ~= "" then API = API .. "&cursor=" .. Cursor end
+    
+    local s, r = pcall(game.HttpGet, game, API)
+    if not s then return end
+    
+    local data = Http:JSONDecode(r)
+    if not data or not data.data then return end
+    
+    -- Сохраняем курсор для следующей страницы
+    Cursor = data.nextPageCursor or ""
+    
+    -- Очищаем кэш и заливаем новые
+    CACHED_SERVERS = {}
+    for _, s in ipairs(data.data) do
+        if s.playing < s.maxPlayers and s.id ~= game.JobId then
+            table.insert(CACHED_SERVERS, s.id)
         end
     end
+    UpdateStatus("✅ Кэшировано: " .. #CACHED_SERVERS)
 end
 
--- GUI статус (чтобы видеть, что он работает)
-local sg = Instance.new("ScreenGui", game.CoreGui)
-local tl = Instance.new("TextLabel", sg)
-tl.Size = UDim2.new(0,200,0,50); tl.Position = UDim2.new(0.5,-100,0,0)
-tl.BackgroundColor3 = Color3.new(0,0,0); tl.TextColor3 = Color3.new(1,1,1)
-tl.Text = "⚡ Hopping..."
+local function Teleport(id)
+    UpdateStatus("🚀 Вход: " .. id:sub(1,8))
+    TPS:TeleportToPlaceInstance(PlaceId, id, Players.LocalPlayer)
+end
 
--- Запуск
-Hop()
+-- // 3. МГНОВЕННЫЙ ПЕРЕЗАПУСК ПРИ ОШИБКЕ //
+TPS.TeleportInitFailed:Connect(function(player, result, errorMessage)
+    if player == Players.LocalPlayer then
+        UpdateStatus("❌ Ошибка ("..tostring(result)..")")
+        -- Не ждем таймер, сразу ищем новый сервер в цикле
+    end
+end)
+
+-- // 4. ГЛАВНЫЙ ЦИКЛ //
+task.spawn(function()
+    while true do
+        if HOPPING then
+            -- Если сервера кончились, качаем пачку
+            if #CACHED_SERVERS == 0 then
+                FetchServers()
+                task.wait(0.5)
+            else
+                -- Берем случайный из кэша (СУПЕР БЫСТРО)
+                local idx = math.random(1, #CACHED_SERVERS)
+                local target = CACHED_SERVERS[idx]
+                
+                -- Удаляем из списка, чтобы не повторяться
+                table.remove(CACHED_SERVERS, idx)
+                
+                if target then
+                    Teleport(target)
+                    
+                    -- Ждем совсем чуть-чуть. Если мы все еще тут - цикл продолжится
+                    -- Если телепорт начнется - скрипт сам заморозится игрой
+                    local t = tick()
+                    while tick() - t < 2 do -- Ждем максимум 2 сек, раньше было вечность
+                        if not HOPPING then break end
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+            end
+        else
+            UpdateStatus("💤 Остановлено")
+            task.wait(1)
+        end
+    end
+end)
+
+-- // 5. КНОПКА //
+ToggleBtn.MouseButton1Click:Connect(function()
+    HOPPING = not HOPPING
+    if HOPPING then
+        ToggleBtn.Text = "STOP HOPPING"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+    else
+        ToggleBtn.Text = "START HOPPING"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 40)
+    end
+end)
