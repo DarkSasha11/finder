@@ -1,4 +1,6 @@
--- ⚡ ULTRA FAST SERVER HOPPER (FIXED 771 ERROR)
+-- 🎲 ULTRA RANDOM HOPPER (MULTI-BOT VERSION)
+-- Специально для бот-нетворка: Боты не встречаются!
+
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -8,109 +10,154 @@ local RunService = game:GetService("RunService")
 local SETTINGS = {
     GAME_ID = 109983668079237,
     URL = "https://raw.githubusercontent.com/velo35001/logi/refs/heads/main/logi.txt",
-    TIMEOUT = 6, -- Если через 6 сек мы еще тут - пробуем следующий
+    TIMEOUT = 5, -- Если через 5 сек не улетели - считаем ошибкой
 }
 
+-- Инициализация уникального рандома для этого окна
+math.randomseed(os.time() + math.random(1, 100000))
+
 local BLACKLIST = {}
-local SERVERS = {}
-local ATTEMPTING = false
+local SERVER_POOL = {}
+local IS_HOPPING = false
 
--- // GUI //
+-- // GUI (Минималистичный статус) //
 local screen = Instance.new("ScreenGui", game.CoreGui)
+screen.Name = "RandomHopper"
+screen.ResetOnSpawn = false
 local frame = Instance.new("Frame", screen)
-frame.Size = UDim2.new(0, 200, 0, 70)
-frame.Position = UDim2.new(0.5, -100, 0, 10)
-frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
-local label = Instance.new("TextLabel", frame)
-label.Size = UDim2.new(1,0,1,0)
-label.BackgroundTransparency = 1
-label.TextColor3 = Color3.new(1,1,1)
-label.TextWrapped = true
-label.Font = Enum.Font.GothamBold
-label.TextSize = 14
+frame.Size = UDim2.new(0, 220, 0, 60)
+frame.Position = UDim2.new(0.5, -110, 0, 5)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+frame.BorderSizePixel = 0
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
-local function Status(txt) label.Text = txt end
+local status = Instance.new("TextLabel", frame)
+status.Size = UDim2.new(1,0,1,0)
+status.BackgroundTransparency = 1
+status.TextColor3 = Color3.fromRGB(255, 255, 255)
+status.Font = Enum.Font.GothamBold
+status.TextSize = 12
+status.TextWrapped = true
+status.Text = "⏳ Init..."
 
--- // ФУНКЦИЯ ПОЛУЧЕНИЯ СЕРВЕРОВ //
-local function GetServers()
-    Status("🔄 Скачиваю список...")
-    local s, r = pcall(game.HttpGet, game, SETTINGS.URL)
-    if not s then return {} end
-    
-    local t = {}
-    for id in r:gmatch("%w+-%w+-%w+-%w+-%w+") do
-        table.insert(t, id)
+local function Log(text, color)
+    status.Text = text
+    if color then status.TextColor3 = color end
+end
+
+-- // УТИЛИТА: Перемешивание таблицы (Fisher-Yates Shuffle) //
+-- Это гарантирует, что у каждого бота будет СВОЙ порядок серверов
+local function Shuffle(tbl)
+    for i = #tbl, 2, -1 do
+        local j = math.random(i)
+        tbl[i], tbl[j] = tbl[j], tbl[i]
     end
-    return t
+    return tbl
 end
 
--- // ФУНКЦИЯ ОЧИСТКИ ОШИБОК //
-local function ClearErrors()
-    -- Пытаемся закрыть серые окна роблокса
-    pcall(function() GuiService:ClearError() end) 
+-- // ПОЛУЧЕНИЕ СПИСКА //
+local function FetchServers()
+    Log("📥 Скачивание списка...", Color3.fromRGB(100, 200, 255))
+    local success, result = pcall(game.HttpGet, game, SETTINGS.URL, true)
+    
+    if not success then 
+        Log("❌ Ошибка HTTP!", Color3.fromRGB(255, 50, 50))
+        task.wait(2)
+        return {} 
+    end
+
+    local list = {}
+    for id in result:gmatch("[a-f0-9%-]+") do
+        if #id > 10 then -- Фильтр мусора
+            table.insert(list, id)
+        end
+    end
+    
+    -- ПЕРЕМЕШИВАЕМ СПИСОК ДЛЯ ЭТОГО БОТА
+    list = Shuffle(list)
+    return list
 end
 
--- // ГЛАВНАЯ ЛОГИКА //
+-- // ЛОГИКА ПРЫЖКА //
 local function Hop()
-    if ATTEMPTING then return end
-    ATTEMPTING = true
+    if IS_HOPPING then return end
+    IS_HOPPING = true
     
-    if #SERVERS == 0 then
-        SERVERS = GetServers()
+    -- Если список пуст или кончился, качаем заново
+    if #SERVER_POOL == 0 then
+        SERVER_POOL = FetchServers()
     end
     
-    -- Выбираем сервер
-    local targetJobId = nil
-    for i = 1, 50 do -- Пробуем найти не забаненный ID
-        local rnd = SERVERS[math.random(1, #SERVERS)]
-        if rnd and not BLACKLIST[rnd] then
-            targetJobId = rnd
+    -- Выбираем случайный сервер из уже перемешанного пула
+    -- Дополнительный рандом на всякий случай
+    local targetID = nil
+    local attempts = 0
+    
+    while attempts < 50 do
+        attempts = attempts + 1
+        -- Берем случайный индекс
+        local idx = math.random(1, #SERVER_POOL)
+        local candidate = SERVER_POOL[idx]
+        
+        if candidate and not BLACKLIST[candidate] then
+            targetID = candidate
             break
         end
     end
     
-    if not targetJobId then
-        Status("♻️ Список кончился, обновляю...")
-        SERVERS = {}
-        ATTEMPTING = false
+    if not targetID then
+        Log("♻️ Нет рабочих серверов. Обновляю...", Color3.fromRGB(255, 200, 50))
+        BLACKLIST = {} -- Очищаем чс, пробуем снова
+        SERVER_POOL = {}
+        IS_HOPPING = false
+        task.wait(1)
         return
     end
 
-    Status("🚀 Вход в: " .. targetJobId:sub(1,8))
+    Log("🚀 Прыжок: " .. targetID:sub(1, 8), Color3.fromRGB(100, 255, 100))
     
     -- Попытка телепорта
-    TeleportService:TeleportToPlaceInstance(SETTINGS.GAME_ID, targetJobId, Players.LocalPlayer)
+    TeleportService:TeleportToPlaceInstance(SETTINGS.GAME_ID, targetID, Players.LocalPlayer)
     
-    -- ЗАЩИТА ОТ ЗАВИСАНИЯ (FIX 771)
-    local start = tick()
-    while tick() - start < SETTINGS.TIMEOUT do
+    -- WATCHDOG (Таймер защиты от зависания)
+    local startTick = tick()
+    while tick() - startTick < SETTINGS.TIMEOUT do
         RunService.Heartbeat:Wait()
-        -- Если вдруг сработало событие ошибки
+        -- Если телепорт не начался, скрипт продолжает крутиться
     end
     
-    -- Если мы всё еще тут через 6 секунд, значит ошибка 771 или Server Full
-    Status("⚠️ Тайм-аут! След. сервер...")
-    BLACKLIST[targetJobId] = true
-    ClearErrors() -- Пробуем закрыть окно ошибки
-    ATTEMPTING = false -- Сбрасываем флаг, цикл начнется заново
+    -- Если мы здесь, значит прошло 5 секунд, а мы еще на старом сервере
+    Log("⚠️ Ошибка/Таймаут. Меняем...", Color3.fromRGB(255, 100, 100))
+    BLACKLIST[targetID] = true -- Баним этот сервер
+    
+    -- Пытаемся закрыть окно ошибки (если оно есть)
+    pcall(function() GuiService:ClearError() end)
+    
+    IS_HOPPING = false -- Сбрасываем флаг, чтобы цикл запустил новый поиск
 end
 
--- // СЛУШАТЕЛИ ОШИБОК //
-TeleportService.TeleportInitFailed:Connect(function(pl, res, err)
-    Status("❌ Ошибка: " .. tostring(res))
-    if ATTEMPTING then
-        -- Мгновенно пробуем следующий, не ждем таймера
-        ATTEMPTING = false 
-        ClearErrors()
+-- // ОБРАБОТЧИК ОШИБОК (Мгновенная реакция) //
+TeleportService.TeleportInitFailed:Connect(function(player, result, err)
+    if player == Players.LocalPlayer then
+        -- Ловим GameEnded, GameFull, Unauthorized и т.д.
+        Log("⛔ Сбой: " .. tostring(result), Color3.fromRGB(255, 50, 50))
+        
+        -- Сразу разрешаем искать новый, не ждем таймер
+        IS_HOPPING = false 
+        pcall(function() GuiService:ClearError() end)
     end
 end)
 
--- Запуск цикла
+-- // ГЛАВНЫЙ ЦИКЛ //
 task.spawn(function()
     while true do
-        if not ATTEMPTING then
-            Hop()
+        if not IS_HOPPING then
+            local s, e = pcall(Hop)
+            if not s then 
+                warn("Script Error: " .. e)
+                IS_HOPPING = false
+            end
         end
-        task.wait(0.1)
+        task.wait(0.1) -- Очень быстрая проверка
     end
 end)
