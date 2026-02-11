@@ -1,107 +1,388 @@
 -- ==============================================================================
--- ⚡ 1. SCANNER + HOPPER (С ИСПРАВЛЕННЫМ ЦИКЛОМ)
+-- ⚡ VALKYRIE SCANNER (FULL VERSION - NO SHORTCUTS)
 -- ==============================================================================
 
-local API_URL = "https://69804bc36570ee87d50eb123.mockapi.io/CAPYNOTIFER/CapyNotifer"
-local Http = game:GetService('HttpService')
-local TPS = game:GetService("TeleportService")
-local Players = game:GetService('Players')
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
 
-local FILE_NAME = "Capy_Shared_Blacklist.json" 
-local LocalPlayer = Players.LocalPlayer
-local PLACE_ID = game.PlaceId
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
--- 🔥 [НОВЫЕ БЫСТРЫЕ НАСТРОЙКИ]
-local PRE_SCAN_DELAY = 1      -- Быстрая задержка перед сканом
-local SCAN_DURATION = 0.5     -- ⚡️ Сканирование 0.5 сек
-local HOPPER_WAIT = 0.5       -- ⚡️ Задержка хоппера 0.5 сек
+if not LocalPlayer.Character then
+    LocalPlayer.CharacterAdded:Wait()
+end
 
--- [Остальные настройки]
-local HIGH_GEN_MIN=10000000; local MID_GEN_MIN=1000000; local OTHER_MIN_SHOW_HIGH=10000000; local OTHER_MIN_SHOW_MID=1000000; local HIGHLIGHT_BLACKLIST={"Triplito Tralaleritos","Guerriro Digitale","Los Tralaleritos","Blackhole Goat","Naughty Naughty","La Vacca Saturno Saturnita","Torrtuginni","Dragonfrutini","Los Tortus","Extinct Tralalero","Dul Dul Dul","Extinct Matteo","Graipuss Medussi","Giftini Spyderini","Karkerkar Kurkur","La Karkerkar Combinasion","Tung Tung Tung Sahur","Los Cucarachas","La Cucaracha","Reindeer Tralala"}; local LOG_WEBHOOK_URL='https://discord.com/api/webhooks/1455105430207332366/1tuA_UzvVyNfWBVtHa2QaW07k50dJ8j_8Ouhumuf-gP9q1Rns85oZ_L671w6MRxUV6l1'; local HIGHLIGHT_WEBHOOK_URL='https://discord.com/api/webhooks/1458442324387430576/FkNygcPwFloTfFwReX7wQqZCna3ooJyDa5vGeYymQJc4uy1_WrnCwySeiYDvIt01abZE'; local NOT_FOUND_WEBHOOK_URL='https://discord.com/api/webhooks/1463126925219463272/oLfcumOkj_u-0PgiMWRdAQojMjMrN_GpBMYbiLYtl5agR0xycoOIPexNXYbxs9l0zOOZ'; local MID_TIER_WEBHOOK_URL='https://discord.com/api/webhooks/1463574239591399665/1MM9rv_Z4IjUDcQDx66Quo9BMGaM79VVB2okEA8qZyp-haN0rrOK01oJupY8IIiU_g80';
+task.wait(1)
 
--- [ВСЕ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ]
-local function sendToGUI(name, gen_raw) task.spawn(function() local function formatNumber(n) if not n then return '?' end local f = tostring(math.floor(n)) while true do local k; f, k = string.gsub(f, "^(-?%d+)(%d%d%d)", '%1,%2'); if k == 0 then break end end return f end; local data = { name = tostring(name), gen = formatNumber(gen_raw) .. "/s", jobId = game.JobId, placeId = tostring(game.PlaceId), createdAt_unix = os.time(), gen_value = gen_raw }; local req = syn and syn.request or request or http_request; if not req then return end; pcall(function() req({ Url = API_URL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = Http:JSONEncode(data) }) end) end) end
-local function getBrainrotImage(name) if not name or name == "" then return nil end return "https://steal-a-brainrot.org/_next/image?url=%2Fimages%2Fbrainrots%2F" .. string.lower(name):gsub(" ", "-") .. ".webp&w=1920&q=90" end; local function fmtNum(n) if not n then return '?' end local formatted = tostring(n) while true do local k; formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1,%2'); if k == 0 then break end end return formatted .. '/s' end; local function parseGen(s) if type(s) ~= 'string' or s == '' then return nil end local clean = s:lower():gsub("[,']", ""):gsub("%s", ""):gsub("/s", "") local mult = 1 if clean:find("k") then mult = 1e3 elseif clean:find("m") then mult = 1e6 elseif clean:find("b") then mult = 1e9 end local num = tonumber(clean:match("[%d%.]+")) if not num then return nil end return num * mult end; local function grab(i) if not i then return nil end local ok,ct = pcall(function() return i.ContentText end) if ok and #ct>0 then return ct end return (i:IsA('TextLabel') or i:IsA('TextBox')) and i.Text or (i:IsA('StringValue') and i.Value) or nil end; local function getInfo(oh) if not oh then return nil end local n = grab(oh:FindFirstChild('DisplayName')) or grab(oh:FindFirstChildOfClass('TextLabel')) local g = grab(oh:FindFirstChild('Generation')) if not g then for _,c in ipairs(oh:GetDescendants()) do local t = grab(c) if t and (t:match('%$') or t:match('/s')) then g=t break end end end return n, g and parseGen(g) end; local function sendWebhook(url, data) pcall(function() local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request) if req then req({Url = url, Method = 'POST', Headers = {['Content-Type']='application/json'}, Body = Http:JSONEncode(data)}) end end) end; local function isFusing(overhead) for _, d in ipairs(overhead:GetDescendants()) do if (d:IsA("TextLabel") or d:IsA("TextButton")) and (d.Text:upper():match("FUSING") or d.Text:upper():match("IN FUSE")) then return true end end return false end;
-local function aggressiveScan() print("⏳ Ожидание " .. PRE_SCAN_DELAY .. "с перед сканом...") task.wait(PRE_SCAN_DELAY); print("🔎 Сканирую сервер..."); local startTime = tick() while (tick() - startTime) < SCAN_DURATION do local res = {} local function add(oh) if not oh or isFusing(oh) then return end local n, g = getInfo(oh) if n and string.find(n:lower(), "lucky block") then return end if n and g and type(g) == 'number' and g >= MID_GEN_MIN then table.insert(res, {name=n, gen=g}) end end for _, v in ipairs(workspace:GetDescendants()) do if v.Name == "AnimalOverhead" or (v.Name == "FastOverheadTemplate" and v:FindFirstChild("GUI")) then add(v.Name == "FastOverheadTemplate" and v.GUI or v) end end local pg = Players.LocalPlayer and Players.LocalPlayer:FindFirstChild('PlayerGui') if pg then for _, v in ipairs(pg:GetDescendants()) do if v.Name == 'AnimalOverhead' then add(v) end end end if #res > 0 then return res end task.wait(0.1) end; return {} end
-local function notify(objs, tier, color) local groups = {}; for _, o in ipairs(objs) do local key = o.name .. tostring(o.gen); if not groups[key] then groups[key] = {name=o.name, gen=o.gen, c=0} end; groups[key].c = groups[key].c + 1 end; local sortedList = {}; for _, data in pairs(groups) do table.insert(sortedList, data) end; table.sort(sortedList, function(a,b) return a.gen > b.gen end); local best = sortedList[1]; if not best then return end; sendToGUI(best.name, best.gen); local desc = {}; if #sortedList > 1 then for i = 2, #sortedList do local d = sortedList[i]; if d.gen and d.gen >= (tier == "High" and OTHER_MIN_SHOW_HIGH or OTHER_MIN_SHOW_MID) then table.insert(desc, string.format('%s%s ($%s)', d.c > 1 and (d.c.."x ") or "", d.name, fmtNum(d.gen))) end end end; if #desc == 0 then table.insert(desc, "None found") end; local titlePrefix = best.c > 1 and (best.c.."x ") or ""; local txt = table.concat(desc, '\n'):sub(1,1000); local img = getBrainrotImage(best.name); local embedClean = {title = string.format("%s%s ($%s)", titlePrefix, best.name, fmtNum(best.gen)), color = 0xFF0000, fields = {{name="📊 Other Brainrots", value="```\n"..txt.."\n```", inline=false}}, footer = {text="CapyFinder"}, timestamp = DateTime.now():ToIsoDate()}; if img then embedClean.thumbnail = {url = img} end; local tpScript = string.format("```lua\ngame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, game.JobId); local embedFull = {title = string.format("%s%s ($%s)", titlePrefix, best.name, fmtNum(best.gen)), color = color, fields = {{name="📊 Other Brainrots", value="```\n"..txt.."\n```", inline=false}, {name="👤 Bot Account", value="```"..Players.LocalPlayer.Name.."```", inline=false}, {name="• Server ID", value="```"..game.JobId.."```", inline=false}, {name="• Join Script", value=tpScript, inline=false}}, footer = {text="CapyFinder"}, timestamp = DateTime.now():ToIsoDate()}; if img then embedFull.thumbnail = {url = img} end; if tier == "High" then sendWebhook(LOG_WEBHOOK_URL, {username="CapyFinder Log", embeds={embedFull}}); sendWebhook(HIGHLIGHT_WEBHOOK_URL, {username="CapyFinder Highlights", embeds={embedClean}}) else sendWebhook(MID_TIER_WEBHOOK_URL, {username="CapyFinder Mid-Tier", embeds={embedFull}}) end end
-local function notifyNotFound() local tpScript = string.format("```lua\ngame:GetService('TeleportService'):TeleportToPlaceInstance(%d, '%s')\n```", game.PlaceId, game.JobId); local embed = {title = "Nothing Found", color = 0x000000, fields = {{name="👤 Bot Account", value="```"..Players.LocalPlayer.Name.."```", inline=false}, {name="• Server ID", value="```"..game.JobId.."```", inline=false}, {name="• Join Script", value=tpScript, inline=false}}, footer = {text="CapyFinder"}, timestamp = DateTime.now():ToIsoDate()}; sendWebhook(NOT_FOUND_WEBHOOK_URL, {username="CapyFinder", embeds={embed}}) end; local function checkBlacklist(name) if not name then return false end for _, bName in ipairs(HIGHLIGHT_BLACKLIST) do if name:lower() == bName:lower() then return true end end return false end;
+-- Уникальный сид для рандома
+math.randomseed(os.time() + tick() * 1000)
 
--- [ЛОГИКА РАБОТЫ С ЧЕРНЫМ СПИСКОМ]
-local function getSharedBlacklist() if isfile(FILE_NAME) then local ok, res = pcall(function() return Http:JSONDecode(readfile(FILE_NAME)) end); if ok then return res end end; return {} end
-local function addToBlacklist(jobId) local list = getSharedBlacklist(); if not table.find(list, jobId) then table.insert(list, jobId); writefile(FILE_NAME, Http:JSONEncode(list)) end end
+-- === CONFIG ===
+local API_URL = "https://jsonblob.com/api/jsonBlob/019c4b89-c26b-7afb-b57e-463ae8dfbf6a"
 
--- 🔥 [ГЛАВНЫЙ ЦИКЛ, КОТОРЫЙ РЕШАЕТ ВСЁ]
-print("CapyFinder запущен с исправленным циклом.")
-if not game:IsLoaded() then game.Loaded:Wait() end
-if not LocalPlayer.Character then LocalPlayer.CharacterAdded:Wait() end
+local WEBHOOK_1_10M      = "https://discord.com/api/webhooks/1470511806295572562/w2mWnYxXPIEdikXeyCMjH70_UL5nAf9gJJM9Vje_BDuvqGTVGu4QwecHqFacptckLbk_"
+local WEBHOOK_10_50M     = "https://discord.com/api/webhooks/1470511880308129957/7WNt-xY0gsrRuGBPxz44inmrO8HjA7h4Di8OnPEDG9dCMjZzmLhektcPfGUyqA3blvLz"
+local WEBHOOK_50_100M    = "https://discord.com/api/webhooks/1470511952269807731/yY96pUlgVmkXpMGg5yJhJL7gShvO7MZ4N703Ce0yAwunLD-IFs7J9YkK3TE81vCbNjXw"
+local WEBHOOK_100_400M   = "https://discord.com/api/webhooks/1470512027490451647/ebiM4BFg6gU2lcR25uPcOkx3E8PWkRgCJyTJoG6qGqE0jKgMNa0TFkF1ZepGFP8HSELH"
+local WEBHOOK_400_1B     = "https://discord.com/api/webhooks/1470512089947705659/sv5Vr77vBAATER1l5DrxSb2UhKm2-WUE9eVQ04Pfvy9agEovVduzrAUlPXG9c8n3qzsn"
+local WEBHOOK_1B_PLUS    = "https://discord.com/api/webhooks/1470512476977369160/K95bRP8HSN13mqzzz8VE8xUs6ZUvfQcGlgKB2WrYncQDe99zej1yGPmm8UFrVas953Pn"
+local WEBHOOK_HIGHLIGHTS = "https://discordapp.com/api/webhooks/1470717035402100908/3QZMC_ihGPLB-ZvRqtCFgp2a-xj5hhcSDWnHju29Fh566saX5SCvfNMiJShrNeL0T_62"
 
-local server_cursor = ""
-while true do
-    print("\n--- НАЧАЛО НОВОГО ЦИКЛА ---")
-    local current_job_id = game.JobId
-    
-    -- 1. Добавляем текущий сервер в черный список, чтобы не зайти на него снова
-    addToBlacklist(current_job_id)
-    
-    -- 2. Сканируем текущий сервер
-    local foundItems = aggressiveScan()
-    
-    -- 3. Обрабатываем находки
-    if #foundItems > 0 then
-        print("✅ НАЙДЕНО! Отправляю лог...")
-        table.sort(foundItems, function(a,b) return a.gen > b.gen end)
-        local best = foundItems[1]
-        if best.gen >= HIGH_GEN_MIN and not checkBlacklist(best.name) then
-            notify(foundItems, "High", 0xFF0000)
-        else
-            notify(foundItems, "Mid", 0xFFA500)
-        end
+local YOUR_CUSTOM_GIF_URL = "" 
+
+-- СПИСОК ИСКЛЮЧЕНИЙ ДЛЯ ХАЙЛАЙТОВ
+local HIGHLIGHT_BLACKLIST = {
+    ["Triplito Tralaleritos"] = true, ["Guerriro Digitale"] = true, ["Los Tralaleritos"] = true, 
+    ["Blackhole Goat"] = true, ["Naughty Naughty"] = true, ["La Vacca Saturno Saturnita"] = true,
+    ["Torrtuginni"] = true, ["Dragonfrutini"] = true, ["Los Tortus"] = true, 
+    ["Extinct Tralalero"] = true, ["Dul Dul Dul"] = true, ["Extinct Matteo"] = true, 
+    ["Graipuss Medussi"] = true, ["Giftini Spyderini"] = true, ["Karkerkar Kurkur"] = true, 
+    ["La Karkerkar Combinasion"] = true, ["Tung Tung Tung Sahur"] = true, ["Los Cucarachas"] = true, 
+    ["La Cucaracha"] = true, ["Reindeer Tralala"] = true, ["Noo my Hear"] = true, 
+    ["Los 25"] = true, ["Los Mi Gatitos"] = true, ["Noo my Present"] = true, 
+    ["Rang Ring Bus"] = true, ["Noo My Candy"] = true, ["Chicleteira Bicicleteira"] = true, 
+    ["Brunito Marsito"] = true, ["Cupid Hotspot"] = true, ["Ho Ho Ho Sahur"] = true, 
+    ["Mi Gatito"] = true, ["Cupid Cupid Sahur"] = true, ["Quesadilla Crocodila"] = true, 
+    ["Pot Pumpkin"] = true, ["Pot Hotspot"] = true, ["Santa Hotspot"] = true, 
+    ["To to to Sahur"] = true, ["Telemorte"] = true, ["List List List Sahur"] = true,
+    ["Los Jobcitos"] = true, ["Bunnyman"] = true, ["Cuadramat and Pakrahmatmamat"] = true, 
+    ["Please my Present"] = true, ["Graipuss Meduss"] = true, ["25"] = true, 
+    ["Love Love Love Sahur"] = true, ["GOAT"] = true, ["Trickolino"] = true, 
+    ["Los Combinasionas"] = true, ["Chicleteira Noelteira"] = true, ["Chimnino"] = true, 
+    ["Swag Soda"] = true, ["Los Burritos"] = true, ["67"] = true, 
+    ["Donkeyturbo Express"] = true, ["Los Chicleteiras"] = true, ["Los Nooo My Hotspotsitos"] = true, 
+    ["Arcadopus"] = true, ["Los Quesadillas"] = true, ["Chicleteirina Bicicleteirina"] = true, 
+    ["Burrito Bandito"] = true, ["Chill Puppy"] = true
+}
+
+local RANGE2_MIN_MPS = 1000000
+local SCAN_INTERVAL = 2
+
+-- === HTTP REQUEST ===
+local request = (syn and syn.request) or (http and http.request) or httprequest or (fluxus and fluxus.request) or request
+if not request then 
+    warn("HTTP Request function not found!")
+    return 
+end
+
+-- ==============================================================================
+-- UTILS
+-- ==============================================================================
+
+local function getBrainrotImage(name) 
+    if not name or name == "" then return nil end 
+    return "https://steal-a-brainrot.org/_next/image?url=%2Fimages%2Fbrainrots%2F" .. string.lower(name):gsub(" ", "-") .. ".webp&w=1920&q=90" 
+end
+
+local function shortMoney(v) 
+    v = tonumber(v) or 0
+    if v >= 1e9 then 
+        local f = string.format("%.2f", v/1e9):gsub("%.?0+$", "")
+        return "$" .. f .. "B/s" 
+    elseif v >= 1e6 then 
+        local f = string.format("%.2f", v/1e6):gsub("%.?0+$", "")
+        return "$" .. f .. "M/s" 
+    elseif v >= 1e3 then 
+        return string.format("$%.0fK/s", v/1e3) 
     else 
-        print("❌ Ничего не найдено.")
-        task.spawn(notifyNotFound)
+        return string.format("$%d/s", math.floor(v)) 
+    end 
+end
+
+local function stripRichText(s) 
+    s = type(s) == "string" and s or ""
+    s = s:gsub("<.->", ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    return s 
+end
+
+-- ==============================================================================
+-- JSONBLOB SYNC FUNCTION
+-- ==============================================================================
+local function updateJsonBlob(newLogData)
+    -- 1. Скачиваем текущие данные (GET)
+    local currentLogs = {}
+    local get_response = request({Url = API_URL, Method = "GET"})
+    
+    if get_response and get_response.StatusCode == 200 then
+        local success, data = pcall(HttpService.JSONDecode, HttpService, get_response.Body)
+        if success and type(data) == "table" then 
+            currentLogs = data 
+        end
     end
     
-    -- 4. Ищем следующий сервер для прыжка
-    print("🔎 Ищу следующий сервер...")
-    local targetFound = false
-    while not targetFound do
-        local url = "https://games.roblox.com/v1/games/" .. PLACE_ID .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true&_nocache=" .. math.random(1000000)
-        if server_cursor ~= "" then url = url .. "&cursor=" .. server_cursor end
+    -- 2. Добавляем новый лог в начало
+    table.insert(currentLogs, 1, newLogData)
+    
+    -- 3. Чистим старые логи (оставляем последние 40)
+    while #currentLogs > 40 do 
+        table.remove(currentLogs) 
+    end
+    
+    -- 4. Отправляем обновленный список обратно (PUT)
+    request({
+        Url = API_URL, 
+        Method = "PUT", 
+        Headers = {
+            ["Content-Type"] = "application/json", 
+            ["Accept"] = "application/json"
+        }, 
+        Body = HttpService:JSONEncode(currentLogs)
+    })
+    
+    print("✅ [Valkyrie] Данные отправлены в JsonBlob для GUI.")
+end
+
+-- ==============================================================================
+-- WEBHOOK LOGIC (VALKYRIE)
+-- ==============================================================================
+
+local sentKeys = {}
+local lastSignature = ""
+
+local function isValidWebhook(url) 
+    return type(url) == "string" and url:find("discord.com/api/webhooks") 
+end
+
+local function pickRangeWebhook(mps) 
+    mps = tonumber(mps) or 0
+    if mps >= 1000000000 then 
+        return "1B+", WEBHOOK_1B_PLUS 
+    elseif mps >= 400000000 then 
+        return "400M–1B", WEBHOOK_400_1B 
+    elseif mps >= 100000000 then 
+        return "100–400M", WEBHOOK_100_400M 
+    elseif mps >= 50000000 then 
+        return "50–100M", WEBHOOK_50_100M 
+    elseif mps >= 10000000 then 
+        return "10–50M", WEBHOOK_10_50M 
+    elseif mps >= 1000000 then 
+        return "1–10M", WEBHOOK_1_10M 
+    else 
+        return nil, nil 
+    end 
+end
+
+local function sendValkyrieWebhook(name, mps, listText, tierLabel, highlightOnly, allFound)
+    if not mps or mps <= 0 then return end
+
+    if highlightOnly then
+        if HIGHLIGHT_BLACKLIST[name] then
+            print("[Valkyrie] Предмет '"..name.."' в черном списке для хайлайтов. Пропуск.")
+            return
+        end
+        if mps < 10000000 then
+            print("[Valkyrie] Предмет '"..name.."' стоит меньше 10M для хайлайтов. Пропуск.")
+            return
+        end
+    end
+
+    local label, targetUrl = pickRangeWebhook(mps)
+    if not label then return end
+    
+    if not highlightOnly and label ~= "1–10M" and mps < 10000000 then
+        print("[Valkyrie] Пропуск лога. MPS ("..shortMoney(mps)..") меньше 10M для канала логов "..label)
+        return
+    end
+
+    if highlightOnly then
+        if not isValidWebhook(WEBHOOK_HIGHLIGHTS) then return end
+        targetUrl = WEBHOOK_HIGHLIGHTS
+    else
+        if not isValidWebhook(targetUrl) then return end
+    end
+
+    local key = tostring(game.JobId) .. "|" .. tostring(name) .. "|" .. tostring(math.floor(mps))
+    if not highlightOnly and sentKeys[key] then return end
+    if not highlightOnly then sentKeys[key] = true end
+
+    local placeId = game.PlaceId
+    local jobId = game.JobId
+    local botName = LocalPlayer.Name
+    local currentPlayers = #Players:GetPlayers()
+    local maxPlayers = Players.MaxPlayers or 8
+    local teleportCmd = string.format('game:GetService("TeleportService"):TeleportToPlaceInstance(%d, "%s", game.Players.LocalPlayer)', placeId, jobId)
+    local githubJoinUrl = string.format("https://light02d.github.io/LIGHT.github.io/joiner/?placeId=%d&gameInstanceId=%s", placeId, jobId)
+    
+    local newTitle = tostring(name or "Unknown") .. " | " .. shortMoney(mps)
+    
+    local otherBrainrotsText = ""
+    if #allFound > 1 then
+        local otherLines = {}
+        for i = 2, #allFound do
+            local item = allFound[i]
+            table.insert(otherLines, item.name .. " | " .. shortMoney(item.mps))
+        end
+        otherBrainrotsText = table.concat(otherLines, "\n")
+    else
+        otherBrainrotsText = "None Found"
+    end
+
+    local lookupName = stripRichText(name or "")
+    local brainImage = getBrainrotImage(lookupName) or YOUR_CUSTOM_GIF_URL
+
+    local fields = {}
+    if not highlightOnly then
+        table.insert(fields, {name = "📊 Other Brainrots", value = "```txt\n" .. otherBrainrotsText .. "\n```", inline = false})
+        table.insert(fields, {name = "👤 Bot", value = "```" .. botName .. "```", inline = true})
+        table.insert(fields, {name = string.format("👥 Players (%d/%d)", currentPlayers, maxPlayers), value = "```\n" .. currentPlayers .. "/" .. maxPlayers .. "\n```", inline = true})
+        table.insert(fields, {name = "⚓ JobID", value = "```\n" .. jobId .. "\n```", inline = false})
+        table.insert(fields, {name = "🐚 Join Script", value = "```lua\n" .. teleportCmd .. "\n```", inline = false})
+        table.insert(fields, {name = "🔗 Join Link", value = "[Click to Join](" .. githubJoinUrl .. ")", inline = false})
+    else
+        table.insert(fields, {name = "📊 Other Brainrots", value = "```txt\n" .. otherBrainrotsText .. "\n```", inline = false})
+    end
+
+    local authorName = highlightOnly and "⚔️ Valkyrie Notifier • Highlights" or "⚔️ Valkyrie Notifier • LOGS • " .. label
+    local data = {
+        username = "Valkyrie Notifier",
+        avatar_url = YOUR_CUSTOM_GIF_URL,
+        embeds = { {
+            author = {name = authorName, icon_url = YOUR_CUSTOM_GIF_URL},
+            thumbnail = { url = brainImage },
+            title = newTitle,
+            color = 0x00BFFF,
+            fields = fields,
+            footer = {text = "Valkyrie Notifier", icon_url = YOUR_CUSTOM_GIF_URL},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        } }
+    }
+
+    pcall(function()
+        request({Url = targetUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(data)})
+    end)
+
+    -- >>> ОТПРАВКА В JSONBLOB ДЛЯ GUI <<<
+    if not highlightOnly then
+        task.spawn(function()
+            updateJsonBlob({
+                id = tostring(math.floor(tick())),
+                name = name,
+                gen = shortMoney(mps),
+                gen_value = mps,
+                placeId = placeId,
+                jobId = jobId,
+                bot = botName,
+                timestamp = os.time()
+            })
+        end)
+    end
+end
+
+-- ==============================================================================
+-- SCANNER (VALKYRIE)
+-- ==============================================================================
+
+local ReplicatedStorage, Packages, Datas, Shared, Utils
+local Synchronizer, AnimalsData, AnimalsShared, NumberUtils
+
+local function waitForModules()
+    pcall(function() ReplicatedStorage = game:GetService("ReplicatedStorage") end)
+    if not ReplicatedStorage then return false end
+    
+    local attempts = 0
+    while attempts < 30 do
+        local p1,p2,p3,p4 = pcall(function() 
+            Packages = ReplicatedStorage:WaitForChild("Packages")
+            Datas = ReplicatedStorage:WaitForChild("Datas")
+            Shared = ReplicatedStorage:WaitForChild("Shared")
+            Utils = ReplicatedStorage:WaitForChild("Utils")
+        end)
         
-        local success, response = pcall(function() return Http:JSONDecode(game:HttpGet(url)) end)
-        
-        if success and response and response.data then
-            local servers = response.data
-            server_cursor = response.nextPageCursor or ""
+        if p1 then 
+            local s1,m1 = pcall(require, Packages:WaitForChild("Synchronizer"))
+            local s2,m2 = pcall(require, Datas:WaitForChild("Animals"))
+            local s3,m3 = pcall(require, Shared:WaitForChild("Animals"))
+            local s4,m4 = pcall(require, Utils:WaitForChild("NumberUtils"))
             
-            -- Перемешиваем сервера, чтобы боты не прыгали на одни и те же
-            for i = #servers, 2, -1 do local j = math.random(i); servers[i], servers[j] = servers[j], servers[i] end
-            
-            local currentBlacklist = getSharedBlacklist()
-            for _, server in ipairs(servers) do
-                if server.id ~= current_job_id and server.playing < server.maxPlayers and not table.find(currentBlacklist, server.id) then
-                    print("🚀 Прыгаю на сервер: " .. server.id)
-                    targetFound = true
-                    TPS:TeleportToPlaceInstance(PLACE_ID, server.id, LocalPlayer)
-                    break 
+            if s1 and s2 and s3 and s4 then 
+                Synchronizer = m1
+                AnimalsData = m2
+                AnimalsShared = m3
+                NumberUtils = m4
+                return true
+            end 
+        end
+        attempts = attempts + 1
+        task.wait(1)
+    end
+    return false
+end
+
+local function scanBrainrots()
+    local found = {}
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots or not Synchronizer or not AnimalsData or not AnimalsShared then return {} end
+
+    for _, plot in ipairs(plots:GetChildren()) do
+        local ch = Synchronizer:Get(plot.Name)
+        if not ch then continue end
+        local list = ch:Get("AnimalList")
+        if typeof(list) ~= "table" then continue end
+
+        for _, animal in pairs(list) do
+            if animal and animal.Index then
+                local info = AnimalsData[animal.Index]
+                if info then
+                    local mps = AnimalsShared:GetGeneration(animal.Index, animal.Mutation, animal.Traits)
+                    if mps and mps >= RANGE2_MIN_MPS then
+                        table.insert(found, {name = info.DisplayName or animal.Index, mps = mps})
+                    end
                 end
             end
-        else
-            -- Если HttpGet не удался, ждем и пробуем снова
-            task.wait(2)
-        end
-        
-        if not targetFound then
-            if server_cursor == "" then
-                print("⚠️ Сервера закончились. Начинаю сначала или прыгаю на случайный.")
-                server_cursor = "" -- Сбрасываем курсор
-                TPS:Teleport(PLACE_ID, LocalPlayer) -- Прыгаем на случайный публичный сервер
-                targetFound = true -- Выходим из цикла поиска, так как телепорт уже инициирован
-            end
         end
     end
-    
-    -- 5. Ждем после инициации телепорта
-    print("⏳ Ожидание после телепорта: " .. HOPPER_WAIT .. "с")
-    task.wait(HOPPER_WAIT)
+
+    if #found > 0 then
+        local seen = {}
+        local uniqueFound = {}
+        for _, item in ipairs(found) do
+            local key = item.name .. "|" .. tostring(math.floor(item.mps))
+            if not seen[key] then
+                seen[key] = true
+                table.insert(uniqueFound, item)
+            end
+        end
+        
+        table.sort(uniqueFound, function(a, b) return a.mps > b.mps end)
+        return uniqueFound
+    end
+    return {}
+end
+
+-- ==============================================================================
+-- MAIN LOOP
+-- ==============================================================================
+
+local modulesLoaded = waitForModules()
+if not modulesLoaded then
+    warn("НЕ УДАЛОСЬ ЗАГРУЗИТЬ МОДУЛИ ИГРЫ! Сканнер не будет работать.")
+end
+
+while true do
+    if modulesLoaded then
+        local foundItems = scanBrainrots()
+        if #foundItems > 0 then
+            local highest = foundItems[1]
+            local signature = tostring(game.JobId) .. "|" .. highest.name .. "|" .. tostring(math.floor(highest.mps))
+
+            if signature ~= lastSignature then
+                print("🔥 НАЙДЕНО " .. #foundItems .. " ЦЕННЫХ ПРЕДМЕТОВ! Самый дорогой: " .. highest.name .. " (" .. shortMoney(highest.mps) .. ")")
+                lastSignature = signature
+                
+                sendValkyrieWebhook(highest.name, highest.mps, nil, nil, false, foundItems)
+                sendValkyrieWebhook(highest.name, highest.mps, nil, nil, true, foundItems)
+            else
+                print("...найденные предметы не изменились, пропуск отправки.")
+            end
+        else
+            print("❌ Ничего ценного не найдено.")
+            lastSignature = ""
+        end
+    end
+
+    task.wait(SCAN_INTERVAL)
 end
